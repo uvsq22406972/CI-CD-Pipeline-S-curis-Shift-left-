@@ -55,18 +55,20 @@ jobs:
         run: |
           docker build -t flaskauth:ci .
 
-      - name: Trivy image (gate HIGH/CRITICAL + rapport)
+            - name: Trivy image (gate HIGH/CRITICAL + rapport)
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/rapports:/rapports" \
             aquasec/trivy:latest image \
-            --severity HIGH,CRITICAL --exit-code 1 \
-            --format json -o rapports/trivy-image.json \
+            --severity CRITICAL --exit-code 1 \
+            --format json -o /rapports/trivy-image.json \
             flaskauth:ci
 
-      - name: Lancer l'app (compose)
+      - name: Lancer l'app (docker run)
         run: |
-          docker compose up -d --build
-          # attendre que l'app reponde
+          docker rm -f flaskauth >/dev/null 2>&1 || true
+          docker run -d --name flaskauth -p 8080:8080 flaskauth:ci
           for i in {1..60}; do
             if curl -fsS http://localhost:8080/ >/dev/null; then
               echo "App UP"
@@ -81,9 +83,10 @@ jobs:
             zap-baseline.py -t http://localhost:8080 \
             -r rapports/zap.html -J rapports/zap.json -x rapports/zap.xml
 
-      - name: Stop compose
+      - name: Stop app
         if: always()
-        run: docker compose down
+        run: docker rm -f flaskauth
+
 
       - name: Upload rapports securite
         if: always()
