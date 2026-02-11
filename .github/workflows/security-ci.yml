@@ -76,10 +76,12 @@ jobs:
       - name: Lancer l'app (docker run)
         run: |
           docker rm -f flaskauth >/dev/null 2>&1 || true
-          docker run -d --name flaskauth --network zapnet -p 8080:8080 flaskauth:ci \
-          -e SESSION_COOKIE_SECURE=false \
-          -e REMEMBER_COOKIE_SECURE=false \
-          -e ZAP_SCAN=true
+          docker run -d --name flaskauth --network zapnet -p 8080:8080 \
+            -e SESSION_COOKIE_SECURE=false \
+            -e REMEMBER_COOKIE_SECURE=false \
+            -e ZAP_SCAN=true \
+            flaskauth:ci
+            
           for i in {1..60}; do
             if curl -fsS http://localhost:8080/ >/dev/null; then
               echo "App UP"
