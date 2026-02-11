@@ -76,7 +76,7 @@ jobs:
       - name: Lancer l'app (docker run)
         run: |
           docker rm -f flaskauth >/dev/null 2>&1 || true
-          docker run -d --name flaskauth --network zapnet -p 8080:8080 flaskauth:ci\
+          docker run -d --name flaskauth --network zapnet -p 8080:8080 flaskauth:ci \
           -e SESSION_COOKIE_SECURE=false \
           -e REMEMBER_COOKIE_SECURE=false \
           -e ZAP_SCAN=true
