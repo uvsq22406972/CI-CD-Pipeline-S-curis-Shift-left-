@@ -51,9 +51,14 @@ jobs:
         run: |
           pip-audit -r requirements.txt
 
-      - name: Build image Docker
+      - name: Build image Docker (no cache)
         run: |
-          docker build -t flaskauth:ci .
+          docker build --no-cache -t flaskauth:ci .
+
+      - name: Debug image user (verify non-root exists)
+        run: |
+          docker run --rm --entrypoint sh flaskauth:ci -lc "grep -n '^non-root:' /etc/passwd || (echo 'non-root missing' && exit 1)"
+          docker run --rm --entrypoint sh flaskauth:ci -lc "id non-root && echo OK"
 
       - name: Trivy image (gate HIGH/CRITICAL + rapport)
         run: |
