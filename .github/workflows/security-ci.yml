@@ -87,6 +87,12 @@ jobs:
           echo "SHA: $GITHUB_SHA"
           sed -n '1,220p' .github/workflows/security-ci.yml
 
+      - name: Debug - logs + check /login
+        if: always()
+        run: |
+          docker logs --tail=200 flaskauth || true
+          curl -i http://localhost:8080/login || true
+
       - name: DAST - OWASP ZAP baseline (rapport)
         run: |
           mkdir -p rapports
