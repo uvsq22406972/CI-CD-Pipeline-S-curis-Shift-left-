@@ -84,9 +84,12 @@ jobs:
 
       - name: DAST - OWASP ZAP baseline (rapport)
         run: |
-          docker run --rm --network host -t ghcr.io/zaproxy/zaproxy:stable \
+          docker run --rm --network host -t \
+            -v "$PWD/rapports:/zap/wrk" \
+            ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py -t http://localhost:8080 \
-            -r rapports/zap.html -J rapports/zap.json -x rapports/zap.xml
+            -r /zap/wrk/zap.html -J /zap/wrk/zap.json -x /zap/wrk/zap.xml
+
 
       - name: Stop app
         if: always()
