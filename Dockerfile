@@ -27,4 +27,4 @@ WORKDIR /app/app
 RUN mkdir -p instance
 
 EXPOSE 8080
-CMD ["python", "app.py"]
+USER non-root CMD ["python", "app.py"]
