@@ -96,7 +96,8 @@ jobs:
             -v "${{ github.workspace }}/rapports:/zap/wrk" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py -t http://localhost:8080 \
-            -r /zap/wrk/zap.html -J /zap/wrk/zap.json -x /zap/wrk/zap.xml
+            -r zap.html -J zap.json -x zap.xml
+
 
       - name: Stop app
         if: always()
