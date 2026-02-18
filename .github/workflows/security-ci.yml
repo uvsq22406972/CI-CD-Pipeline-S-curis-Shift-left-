@@ -69,30 +69,40 @@ jobs:
 
       - name: Create docker network
         run: docker network create zapnet || true
-        
-      - name: Check SECRET_KEY exists
-        run: |
-          if [ -z "${{ secrets.SECRET_KEY }}" ]; then
-            echo "SECRET_KEY is missing in GitHub Secrets"
-            exit 1
-          fi
-          echo "SECRET_KEY loaded"
 
-      - name: Lancer l'app (docker run)
+
+      - name: Run container (debug + wait)
         run: |
+          # Supprime ancien conteneur si existe
           docker rm -f flaskauth >/dev/null 2>&1 || true
-          docker run -d --name flaskauth --network zapnet -p 8080:8080 \
-            -e APP_ENV=dev \
-            -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-            -e DB_URL="sqlite:///instance/app.db" \
-            -e RATELIMIT_STORAGE_URI="memory://" \
-            -e SESSION_COOKIE_SECURE=false \
-            -e REMEMBER_COOKIE_SECURE=false \
-            -e WTF_CSRF_SSL_STRICT=false \
-            flaskauth:ci
 
+          # Lance le conteneur
+          docker run -d --name flaskauth --network zapnet -p 8080:8080 \
+          -e APP_ENV=dev \
+          -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
+          -e DB_URL="sqlite:///instance/app.db" \
+          -e RATELIMIT_STORAGE_URI="memory://" \
+          -e SESSION_COOKIE_SECURE=false \
+          -e REMEMBER_COOKIE_SECURE=false \
+          -e WTF_CSRF_SSL_STRICT=false \
+          flaskauth:ci
+
+          # Attendre un peu que ça démarre/crashe
+          sleep 3
+
+          echo "=== docker ps -a ==="
+          docker ps -a
+
+          echo "=== docker inspect status ==="
+          docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' flaskauth || true
+
+          echo "=== docker logs ==="
+          docker logs --tail=200 flaskauth || true
+
+      - name: Wait for app
+        run: |
           ok=0
-          for i in {1..60}; do
+          for i in {1..30}; do
             if curl -fsS http://localhost:8080/ >/dev/null; then
               echo "App UP"
               ok=1
@@ -100,8 +110,9 @@ jobs:
             fi
             sleep 2
           done
+      
           if [ "$ok" -ne 1 ]; then
-            echo "App did not start in time"
+            echo "App did not start"
             docker logs --tail=200 flaskauth || true
             exit 1
           fi
