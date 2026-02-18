@@ -1,25 +1,49 @@
+# config.py
 import os
 
-class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+def env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "y", "on")
 
-    # Base de données SQLite
-    DB_URL = os.environ.get("DB_URL", "sqlite:///instance/app.db")
+def env_int(name: str, default: int) -> int:
+    v = os.getenv(name)
+    return int(v) if v is not None else default
 
-    # --- Cookies sécurisés (conditionnels HTTPS / CI) ---
+
+class BaseConfig:
+    #Config de base
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
+    DB_URL = os.getenv("DB_URL", "sqlite:///instance/app.db")
+
+    #Cookie,Session
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
-
-    # Secure = True en prod HTTPS, False en CI HTTP
-    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "true").lower() == "true"
+    SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+    SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", False)
 
     REMEMBER_COOKIE_HTTPONLY = True
-    REMEMBER_COOKIE_SAMESITE = os.environ.get("REMEMBER_COOKIE_SAMESITE", "Lax")
-    REMEMBER_COOKIE_SECURE = os.environ.get("REMEMBER_COOKIE_SECURE", "true").lower() == "true"
+    REMEMBER_COOKIE_SAMESITE = os.getenv("REMEMBER_COOKIE_SAMESITE", "Lax")
+    REMEMBER_COOKIE_SECURE = env_bool("REMEMBER_COOKIE_SECURE", False)
 
-    # --- CSRF ---
-    WTF_CSRF_TIME_LIMIT = 3600
+    #CSRF
+    WTF_CSRF_ENABLED = env_bool("WTF_CSRF_ENABLED", True)
+    WTF_CSRF_TIME_LIMIT = env_int("WTF_CSRF_TIME_LIMIT", 3600)
+    WTF_CSRF_SSL_STRICT = env_bool("WTF_CSRF_SSL_STRICT", False)
+    
+    #Limitation
+    RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    RATELIMIT_ENABLED = env_bool("RATELIMIT_ENABLED", True)
 
-    # Désactiver CSRF uniquement pendant le scan ZAP (CI)
-    if os.environ.get("ZAP_SCAN", "false").lower() == "true":
-        WTF_CSRF_ENABLED = False
+
+class DevConfig(BaseConfig):
+    DEBUG = True
+    TESTING = False
+
+
+class ProdConfig(BaseConfig):
+    DEBUG = False
+    TESTING = False
+    SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", True)
+    REMEMBER_COOKIE_SECURE = env_bool("REMEMBER_COOKIE_SECURE", True)
+    WTF_CSRF_SSL_STRICT = env_bool("WTF_CSRF_SSL_STRICT", True)

@@ -11,16 +11,21 @@ Améliorations de sécurité ajoutées:
 - Entêtes HTTP de sécurité
 - Validation des entrées utilisateur
 - Accès au base de données sécurisé via SQLAlchemy
+- RBAC: User et admin
 """
 
+import os
+import click
 import re
 from datetime import timedelta
 
-from flask import Flask, render_template, redirect, url_for, flash
+from flask import Flask, render_template, redirect, url_for, flash, current_app
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField
 from wtforms.validators import DataRequired, Email, Length, EqualTo
 from flask_wtf.csrf import CSRFProtect
+from functools import wraps
+from flask import abort
 
 from flask_login import (
     LoginManager,
@@ -41,15 +46,10 @@ from flask_talisman import Talisman
 from sqlalchemy import create_engine, String, Integer, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
-from config import Config
-from flask import request  # en haut du fichier
+from app.config import DevConfig, ProdConfig
+from flask import request
 
-
-
-# =========================
-# Définition de la base SQL
-# =========================
-
+#Base SQL
 class Base(DeclarativeBase):
     """Classe de base SQLAlchemy."""
     pass
@@ -64,24 +64,32 @@ class User(Base, UserMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
 
-#Création du moteur de base de données
-engine = create_engine(Config.DB_URL, future=True)
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
 
-def init_db():
+def init_db(engine):
     """Création des tables si elles n'existent pas."""
     Base.metadata.create_all(engine)
 
+#RBAC décorateur
+def admin_required(view_func):
+    @wraps(view_func)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for("login"))
+        if not getattr(current_user, "is_admin", lambda: False)():
+            abort(403)
+        return view_func(*args, **kwargs)
+    return wrapper
 
-# =========================
-# Définition des formulaires
-# =========================
-
+#Formulaires
 class LoginForm(FlaskForm):
     """Formulaire de connexion avec validation."""
     email = StringField("Email", validators=[DataRequired(), Email(), Length(max=255)])
-    password = PasswordField("Mot de passe", validators=[DataRequired(), Length(min=8, max=128)])
+    password = PasswordField("Mot de passe", validators=[DataRequired(), Length(min=12, max=128)])
 
 
 class RegisterForm(FlaskForm):
@@ -108,16 +116,15 @@ class RegisterForm(FlaskForm):
             EqualTo("password", message="Les mots de passe ne correspondent pas.")
         ],
     )
-
-
-
-# =========================
-# Création de l'application
-# =========================
-
+    
+#Créer application Flask
 def create_app():
     app = Flask(__name__)
-    app.config.from_object(Config)
+    env = os.getenv("APP_ENV", "dev").lower()
+    app.config.from_object(ProdConfig if env == "prod" else DevConfig)
+    engine = create_engine(app.config["DB_URL"], future=True)
+    app.engine = engine
+    init_db(engine)
     
     csrf = CSRFProtect()
     csrf.init_app(app)
@@ -130,6 +137,9 @@ def create_app():
         app,
         content_security_policy={"default-src": ["'self'"], "style-src": ["'self'"]},
         force_https=False,
+        session_cookie_secure=False,
+        session_cookie_http_only=True,
+        strict_transport_security=False,
     )
 
     #Limitation du nombre de requêtes par IP (anti brute-force)
@@ -148,15 +158,10 @@ def create_app():
         except ValueError:
             return None
 
-        with Session(engine) as s:
+        with Session(current_app.engine) as s:
             return s.get(User, uid)
 
-    # Initialisation de la base
-    init_db()
-
-    # =========================
-    # Fonction de vérification du mot de passe
-    # =========================
+    #Verif mdp
     def mot_de_passe_robuste(pw: str) -> bool:
         """
         Vérifie la robustesse minimale : >= 12 caractères, minuscule, majuscule, chiffre, caractère spécial
@@ -170,17 +175,52 @@ def create_app():
             and re.search(r"\d", pw)
             and re.search(r"[^A-Za-z0-9]", pw)
         )
+    
+    #Creation admin via CLI
+    @app.cli.command("create-admin")
+    @click.option("--email", default=None, help="Email de l'admin")
+    @click.option("--password", default=None, help="Mot de passe de l'admin (sinon prompt)")
+    def create_admin(email, password):
+        """Créer un compte admin via CLI (provisioning/dev)."""
+        init_db(engine)
 
-    # =========================
-    # Routes web
-    # =========================
+        #Email
+        if not email:
+            email = click.prompt("Email", type=str).strip().lower()
 
+        #Password (prompt sécurisé si non fourni)
+        if not password:
+            password = click.prompt("Mot de passe", hide_input=True, type=str)
+            password_confirm = click.prompt("Confirmez le mot de passe", hide_input=True, type=str)
+
+            if password != password_confirm:
+                raise click.ClickException("Les mots de passe ne correspondent pas.")
+
+        #Robustesse du mot de passe
+        if not mot_de_passe_robuste(password):
+            raise click.ClickException(
+                "Mot de passe trop faible : 12+ caractères, majuscule, minuscule, chiffre, caractère spécial."
+            )
+
+        pw_hash = generate_password_hash(password)
+
+        with Session(current_app.engine) as s:
+            existing = s.scalar(select(User).where(User.email == email))
+            if existing:
+                raise click.ClickException("Un utilisateur avec cet email existe déjà.")
+
+            s.add(User(email=email, password_hash=pw_hash, role="admin"))
+            s.commit()
+
+        click.echo(f"Admin créé: {email}")
+        
+    #Routes web
     @app.get("/")
     def index():
         """Page d'accueil."""
         return render_template("index.html")
 
-    # ---------- INSCRIPTION ----------
+    #Inscription
     @app.route("/register", methods=["GET", "POST"])
     @limiter.limit("10 per hour")
     def register():
@@ -201,13 +241,13 @@ def create_app():
 
             pw_hash = generate_password_hash(password)
 
-            with Session(engine) as s:
+            with Session(current_app.engine) as s:
                 #Vérifie si email déjà existant
                 if s.scalar(select(User).where(User.email == email)):
                     flash("Email déjà utilisé.", "warning")
                     return render_template("register.html", form=form)
 
-                s.add(User(email=email, password_hash=pw_hash))
+                s.add(User(email=email, password_hash=pw_hash, role="user"))
                 s.commit()
 
             flash("Compte créé avec succès.", "success")
@@ -217,7 +257,7 @@ def create_app():
             print("ERREURS REGISTER:", form.errors)
         return render_template("register.html", form=form)
 
-    # ---------- CONNEXION ----------
+    #Connexion
     @app.route("/login", methods=["GET", "POST"])
     @limiter.limit("10 per minute")
     def login():
@@ -231,7 +271,7 @@ def create_app():
             email = form.email.data.strip().lower()
             password = form.password.data
 
-            with Session(engine) as s:
+            with Session(current_app.engine) as s:
                 user = s.scalar(select(User).where(User.email == email))
 
             #Message générique pour éviter l’énumération d’utilisateurs
@@ -245,14 +285,19 @@ def create_app():
 
         return render_template("login.html", form=form)
 
-    # ---------- DASHBOARD ----------
+    #Dashboard protégé
     @app.get("/dashboard")
     @login_required
     def dashboard():
         """Page protégée accessible uniquement après authentification."""
-        return render_template("dashboard.html", email=current_user.email)
+        return render_template("dashboard.html", email=current_user.email, role=current_user.role)
+    
+    @app.get("/admin")
+    @admin_required
+    def admin():
+        return render_template("admin.html", email=current_user.email, role=current_user.role)
 
-    # ---------- DÉCONNEXION ----------
+    #Logout sécurisé (POST + CSRF)
     @app.post("/logout")
     @login_required
     def logout():
@@ -263,9 +308,16 @@ def create_app():
 
     return app
 
-
 #Lancement direct en mode développement
 app = create_app()
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    storage_uri=app.config["RATELIMIT_STORAGE_URI"],
+    default_limits=["200 per day", "50 per hour"],
+    enabled=app.config.get("RATELIMIT_ENABLED", True),
+)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=False)

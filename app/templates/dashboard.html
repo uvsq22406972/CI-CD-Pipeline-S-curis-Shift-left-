@@ -5,6 +5,12 @@
 <div class="card">
   <p>Authentification réussie!</p>
   <p>Connecté: <strong>{{ email }}</strong></p>
+  <p>Rôle: <strong>{{ role }}</strong></p>
+
+  {% if role == "admin" %}
+    <p><a href="{{ url_for('admin') }}">Aller à la zone Admin</a></p>
+  {% endif %}
+  
   <p class="muted">Route protégée par <code>@login_required</code>.</p>
 </div>
 {% endblock %}

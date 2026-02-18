@@ -4,12 +4,18 @@ services:
     container_name: flaskauth
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
-      - FLASK_ENV=production
-      - SECRET_KEY=${SECRET_KEY}
-
-    volumes:
-      - ./instance:/app/instance
+      - APP_ENV=dev
+      - SESSION_COOKIE_SECURE=false
+      - REMEMBER_COOKIE_SECURE=false
+      - WTF_CSRF_SSL_STRICT=false
+      - GUNICORN_CMD_ARGS=
+    command: ["gunicorn", "-w", "2", "-b", "0.0.0.0:8080", "app.wsgi:app"]
+    volumes: 
+      - ./app:/app/app/app
+      - ./instance:/app/app/instance
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ >/dev/null || exit 1"]
       interval: 10s

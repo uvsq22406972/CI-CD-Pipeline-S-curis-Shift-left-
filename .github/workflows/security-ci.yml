@@ -58,11 +58,6 @@ jobs:
         run: |
           docker build --no-cache -t flaskauth:ci .
 
-      - name: Debug image user (verify non-root exists)
-        run: |
-          docker run --rm --entrypoint sh flaskauth:ci -lc "grep -n '^non-root:' /etc/passwd || (echo 'non-root missing' && exit 1)"
-          docker run --rm --entrypoint sh flaskauth:ci -lc "id non-root && echo OK"
-
       - name: Trivy image (gate CRITICAL + rapport)
         run: |
           docker run --rm \
@@ -100,18 +95,6 @@ jobs:
             docker logs --tail=200 flaskauth || true
             exit 1
           fi
-
-
-      - name: Debug - afficher le workflow utilisé
-        run: |
-          echo "SHA: $GITHUB_SHA"
-          sed -n '1,220p' .github/workflows/security-ci.yml
-
-      - name: Debug - logs + check /login
-        if: always()
-        run: |
-          docker logs --tail=200 flaskauth || true
-          curl -i http://localhost:8080/login || true
 
       - name: DAST - OWASP ZAP baseline (gate FAIL only)
         run: |
